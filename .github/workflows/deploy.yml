@@ -18,6 +18,7 @@ jobs:
         curl -L -o v2ray.zip https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip
         unzip -o v2ray.zip -d $HOME/bin/v2ray
         chmod +x $HOME/bin/v2ray/v2ray
+        echo "$HOME/bin/v2ray" >> $GITHUB_PATH
 
     - name: Create V2Ray config
       run: |
@@ -56,35 +57,40 @@ jobs:
 
     - name: Start V2Ray and create SSH tunnel
       run: |
-        # اجرای V2Ray در پس‌زمینه
-        $HOME/bin/v2ray/v2ray -config config.json &
+        # اجرای V2Ray با دستور صحیح
+        $HOME/bin/v2ray/v2ray run -config config.json &
         sleep 5
         
-        # ایجاد تونل SSH به localhost.run (بدون نیاز به نصب اضافه)
+        # ایجاد تونل SSH با localhost.run
         echo "🔄 Creating tunnel via localhost.run..."
         ssh -o StrictHostKeyChecking=no -R 80:localhost:8080 localhost.run 2>&1 | tee tunnel.log &
         
-        # صبر می‌کنیم تا URL تولید شود
+        # صبر برای تولید URL
         sleep 10
         
         # استخراج URL از لاگ
-        TUNNEL_URL=$(grep -o 'https\?://[a-zA-Z0-9.-]*\.localhost\.run' tunnel.log | head -1)
+        TUNNEL_URL=$(grep -oE 'https?://[a-zA-Z0-9.-]+\.localhost\.run' tunnel.log | head -1)
         if [ -z "$TUNNEL_URL" ]; then
-          TUNNEL_URL=$(grep -o 'http://[a-zA-Z0-9.-]*\.localhost\.run' tunnel.log | head -1)
+          TUNNEL_URL="http://$(grep -oE '[a-zA-Z0-9.-]+\.localhost\.run' tunnel.log | head -1)"
         fi
         
-        echo "✅ Tunnel URL: $TUNNEL_URL"
-        echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+        if [ -n "$TUNNEL_URL" ]; then
+          echo "✅ Tunnel URL: $TUNNEL_URL"
+          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+        else
+          echo "⚠️ Could not extract URL, but tunnel may still work."
+          echo "Check the logs manually for a localhost.run address."
+        fi
         
         # نمایش کانفیگ نهایی
         echo ""
         echo "═════════════════════════════════════════════════"
         echo "🔑 YOUR VLESS CONFIG:"
-        echo "vless://${UUID}@${TUNNEL_URL#https://}:443?encryption=none&security=none&type=ws&path=%2F#GitHub-Actions"
-        echo "═════════════════════════════════════════════════"
+        echo "vless://${UUID}@${TUNNEL_URL#https://}?encryption=none&security=none&type=ws&path=%2F#GitHub-Actions"
         echo ""
-        echo "⚠️  Note: Use port 443 in the config above, but actually the tunnel uses random port."
-        echo "   If it doesn't work, replace port with 80 and security=none."
+        echo "If the above doesn't work, try this (with port 80):"
+        echo "vless://${UUID}@${TUNNEL_URL#https://}:80?encryption=none&security=none&type=ws&path=%2F#GitHub-Actions"
+        echo "═════════════════════════════════════════════════"
         
         # نگه داشتن workflow فعال
         sleep 360h
