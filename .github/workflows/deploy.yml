@@ -1,4 +1,4 @@
-name: Deploy V2Ray with SSH Tunnel (localhost.run)
+name: Deploy V2Ray with Bore Tunnel
 
 on:
   workflow_dispatch:
@@ -14,11 +14,10 @@ jobs:
 
     - name: Install V2Ray
       run: |
-        mkdir -p $HOME/bin
+        mkdir -p v2ray
         curl -L -o v2ray.zip https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip
-        unzip -o v2ray.zip -d $HOME/bin/v2ray
-        chmod +x $HOME/bin/v2ray/v2ray
-        echo "$HOME/bin/v2ray" >> $GITHUB_PATH
+        unzip -o v2ray.zip -d v2ray
+        chmod +x v2ray/v2ray
 
     - name: Create V2Ray config
       run: |
@@ -55,42 +54,23 @@ jobs:
         }
         EOF
 
-    - name: Start V2Ray and create SSH tunnel
+    - name: Download and run Bore
       run: |
-        # اجرای V2Ray با دستور صحیح
-        $HOME/bin/v2ray/v2ray run -config config.json &
+        curl -L -o bore https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-x86_64-unknown-linux-musl
+        chmod +x bore
+        # اجرای V2Ray در پس‌زمینه
+        ./v2ray/v2ray run -config config.json &
         sleep 5
-        
-        # ایجاد تونل SSH با localhost.run
-        echo "🔄 Creating tunnel via localhost.run..."
-        ssh -o StrictHostKeyChecking=no -R 80:localhost:8080 localhost.run 2>&1 | tee tunnel.log &
-        
-        # صبر برای تولید URL
+        echo "🔄 Creating tunnel with bore.pub..."
+        ./bore local 8080 --to bore.pub &
         sleep 10
-        
-        # استخراج URL از لاگ
-        TUNNEL_URL=$(grep -oE 'https?://[a-zA-Z0-9.-]+\.localhost\.run' tunnel.log | head -1)
-        if [ -z "$TUNNEL_URL" ]; then
-          TUNNEL_URL="http://$(grep -oE '[a-zA-Z0-9.-]+\.localhost\.run' tunnel.log | head -1)"
-        fi
-        
-        if [ -n "$TUNNEL_URL" ]; then
-          echo "✅ Tunnel URL: $TUNNEL_URL"
-          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
-        else
-          echo "⚠️ Could not extract URL, but tunnel may still work."
-          echo "Check the logs manually for a localhost.run address."
-        fi
-        
-        # نمایش کانفیگ نهایی
-        echo ""
-        echo "═════════════════════════════════════════════════"
-        echo "🔑 YOUR VLESS CONFIG:"
-        echo "vless://${UUID}@${TUNNEL_URL#https://}?encryption=none&security=none&type=ws&path=%2F#GitHub-Actions"
-        echo ""
-        echo "If the above doesn't work, try this (with port 80):"
-        echo "vless://${UUID}@${TUNNEL_URL#https://}:80?encryption=none&security=none&type=ws&path=%2F#GitHub-Actions"
-        echo "═════════════════════════════════════════════════"
-        
-        # نگه داشتن workflow فعال
+        # لاگ bore را نمایش می‌دهیم (برای دیدن پورت)
+        echo "Check the logs below for the port number:"
+        ps aux | grep bore
+        # این خط workflow را زنده نگه می‌دارد
+        sleep 360h
+
+    - name: Keep alive
+      run: |
+        echo "✅ Service is running. Check the 'Download and run Bore' step for the port."
         sleep 360h
