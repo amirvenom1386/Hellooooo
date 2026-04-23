@@ -12,14 +12,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup V2Ray
+    - name: Install V2Ray
       run: |
+        # دانلود و نصب V2Ray در دایرکتوری فعلی
         curl -L -o v2ray.zip https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip
-        unzip v2ray.zip -d v2ray
+        unzip -o v2ray.zip -d v2ray
         chmod +x v2ray/v2ray
-        sudo mv v2ray/v2ray /usr/local/bin/
+        echo "$(pwd)/v2ray" >> $GITHUB_PATH   # اضافه کردن به PATH
 
-    - name: Create Config
+    - name: Create V2Ray config
       run: |
         UUID=$(cat /proc/sys/kernel/random/uuid)
         echo "UUID=$UUID" >> $GITHUB_ENV
@@ -54,16 +55,16 @@ jobs:
         }
         EOF
 
-    - name: Download Bore
+    - name: Install Bore
       run: |
         curl -L -o bore https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-x86_64-unknown-linux-musl
         chmod +x bore
-        sudo mv bore /usr/local/bin/
+        echo "$(pwd)" >> $GITHUB_PATH
 
     - name: Run V2Ray and Bore
       run: |
-        /usr/local/bin/v2ray -config config.json &
+        v2ray -config config.json &
         sleep 5
         echo "🔄 Creating tunnel with bore..."
-        /usr/local/bin/bore local 8080 --to bore.pub
+        bore local 8080 --to bore.pub
         sleep 360h
