@@ -1,4 +1,4 @@
-name: Deploy V2Ray with Bore Tunnel
+name: Deploy V2Ray with SSH Tunnel (localhost.run)
 
 on:
   workflow_dispatch:
@@ -14,11 +14,10 @@ jobs:
 
     - name: Install V2Ray
       run: |
-        # دانلود و نصب V2Ray در دایرکتوری فعلی
+        mkdir -p $HOME/bin
         curl -L -o v2ray.zip https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip
-        unzip -o v2ray.zip -d v2ray
-        chmod +x v2ray/v2ray
-        echo "$(pwd)/v2ray" >> $GITHUB_PATH   # اضافه کردن به PATH
+        unzip -o v2ray.zip -d $HOME/bin/v2ray
+        chmod +x $HOME/bin/v2ray/v2ray
 
     - name: Create V2Ray config
       run: |
@@ -55,16 +54,37 @@ jobs:
         }
         EOF
 
-    - name: Install Bore
+    - name: Start V2Ray and create SSH tunnel
       run: |
-        curl -L -o bore https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-x86_64-unknown-linux-musl
-        chmod +x bore
-        echo "$(pwd)" >> $GITHUB_PATH
-
-    - name: Run V2Ray and Bore
-      run: |
-        v2ray -config config.json &
+        # اجرای V2Ray در پس‌زمینه
+        $HOME/bin/v2ray/v2ray -config config.json &
         sleep 5
-        echo "🔄 Creating tunnel with bore..."
-        bore local 8080 --to bore.pub
+        
+        # ایجاد تونل SSH به localhost.run (بدون نیاز به نصب اضافه)
+        echo "🔄 Creating tunnel via localhost.run..."
+        ssh -o StrictHostKeyChecking=no -R 80:localhost:8080 localhost.run 2>&1 | tee tunnel.log &
+        
+        # صبر می‌کنیم تا URL تولید شود
+        sleep 10
+        
+        # استخراج URL از لاگ
+        TUNNEL_URL=$(grep -o 'https\?://[a-zA-Z0-9.-]*\.localhost\.run' tunnel.log | head -1)
+        if [ -z "$TUNNEL_URL" ]; then
+          TUNNEL_URL=$(grep -o 'http://[a-zA-Z0-9.-]*\.localhost\.run' tunnel.log | head -1)
+        fi
+        
+        echo "✅ Tunnel URL: $TUNNEL_URL"
+        echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+        
+        # نمایش کانفیگ نهایی
+        echo ""
+        echo "═════════════════════════════════════════════════"
+        echo "🔑 YOUR VLESS CONFIG:"
+        echo "vless://${UUID}@${TUNNEL_URL#https://}:443?encryption=none&security=none&type=ws&path=%2F#GitHub-Actions"
+        echo "═════════════════════════════════════════════════"
+        echo ""
+        echo "⚠️  Note: Use port 443 in the config above, but actually the tunnel uses random port."
+        echo "   If it doesn't work, replace port with 80 and security=none."
+        
+        # نگه داشتن workflow فعال
         sleep 360h
