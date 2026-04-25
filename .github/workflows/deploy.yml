@@ -1,4 +1,4 @@
-name: Deploy V2Ray with Cloudflare Tunnel
+name: Deploy Xray VLESS+REALITY Server
 
 on:
   workflow_dispatch:
@@ -12,88 +12,19 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install V2Ray
+    - name: Install Docker
       run: |
-        mkdir -p v2ray
-        curl -L -o v2ray.zip https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip
-        unzip -o v2ray.zip -d v2ray
-        chmod +x v2ray/v2ray
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sudo sh get-docker.sh
 
-    - name: Create V2Ray config
+    - name: Run Xray with REALITY
       run: |
-        UUID=$(cat /proc/sys/kernel/random/uuid)
-        echo "UUID=$UUID" >> $GITHUB_ENV
-        cat > config.json << EOF
-        {
-          "inbounds": [
-            {
-              "port": 8080,
-              "protocol": "vless",
-              "settings": {
-                "clients": [
-                  {
-                    "id": "$UUID",
-                    "flow": "xtls-rprx-vision"
-                  }
-                ],
-                "decryption": "none"
-              },
-              "streamSettings": {
-                "network": "ws",
-                "wsSettings": {
-                  "path": "/"
-                }
-              }
-            }
-          ],
-          "outbounds": [
-            {
-              "protocol": "freedom"
-            }
-          ]
-        }
-        EOF
+        docker run -d --name xray-reality -p 443:443 --restart=unless-stopped teddysun/xray \
+          -dest www.bing.com:443 \
+          -server-names www.bing.com \
+          -fingerprint chrome
+        sleep 10
+        docker logs xray-reality
 
-    - name: Install cloudflared
-      run: |
-        curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-        chmod +x cloudflared
-
-    - name: Run V2Ray and create Cloudflare Tunnel
-      run: |
-        # اجرای V2Ray
-        ./v2ray/v2ray run -config config.json &
-        sleep 5
-        
-        # ایجاد تونل Cloudflare (بدون نیاز به احراز هویت)
-        echo "🔄 Creating Cloudflare tunnel..."
-        ./cloudflared tunnel --url http://localhost:8080 --metrics localhost:45678 > cloudflared.log 2>&1 &
-        
-        # صبر برای دریافت آدرس
-        sleep 15
-        
-        # استخراج آدرس trycloudflare از لاگ
-        TUNNEL_URL=$(grep -o 'https://[a-z0-9.-]*\.trycloudflare\.com' cloudflared.log | head -1)
-        
-        if [ -z "$TUNNEL_URL" ]; then
-          echo "⚠️ Could not extract URL automatically. Checking log file..."
-          cat cloudflared.log
-          echo ""
-          echo "Please look for a line containing 'trycloudflare.com' manually."
-        else
-          echo "✅ Tunnel URL: $TUNNEL_URL"
-          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
-        fi
-        
-        # نمایش کانفیگ نهایی
-        echo ""
-        echo "═════════════════════════════════════════════════"
-        echo "🔑 YOUR VLESS CONFIG:"
-        echo "vless://${UUID}@${TUNNEL_URL#https://}:443?encryption=none&security=tls&type=ws&path=%2F#GitHub-Actions"
-        echo ""
-        echo "If TLS doesn't work, try port 80 without TLS:"
-        echo "vless://${UUID}@${TUNNEL_URL#https://}:80?encryption=none&security=none&type=ws&path=%2F#GitHub-Actions"
-        echo "═════════════════════════════════════════════════"
-        
-        # نگه داشتن workflow فعال
-        sleep 360h
+    - name: Keep alive
+      run: sleep 360h
