@@ -1,4 +1,4 @@
-name: Deploy V2Ray with Bore Tunnel
+name: Deploy V2Ray with Cloudflare Tunnel
 
 on:
   workflow_dispatch:
@@ -54,23 +54,46 @@ jobs:
         }
         EOF
 
-    - name: Download and run Bore
+    - name: Install cloudflared
       run: |
-        curl -L -o bore https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-x86_64-unknown-linux-musl
-        chmod +x bore
-        # اجرای V2Ray در پس‌زمینه
+        curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+        chmod +x cloudflared
+
+    - name: Run V2Ray and create Cloudflare Tunnel
+      run: |
+        # اجرای V2Ray
         ./v2ray/v2ray run -config config.json &
         sleep 5
-        echo "🔄 Creating tunnel with bore.pub..."
-        ./bore local 8080 --to bore.pub &
-        sleep 10
-        # لاگ bore را نمایش می‌دهیم (برای دیدن پورت)
-        echo "Check the logs below for the port number:"
-        ps aux | grep bore
-        # این خط workflow را زنده نگه می‌دارد
-        sleep 360h
-
-    - name: Keep alive
-      run: |
-        echo "✅ Service is running. Check the 'Download and run Bore' step for the port."
+        
+        # ایجاد تونل Cloudflare (بدون نیاز به احراز هویت)
+        echo "🔄 Creating Cloudflare tunnel..."
+        ./cloudflared tunnel --url http://localhost:8080 --metrics localhost:45678 > cloudflared.log 2>&1 &
+        
+        # صبر برای دریافت آدرس
+        sleep 15
+        
+        # استخراج آدرس trycloudflare از لاگ
+        TUNNEL_URL=$(grep -o 'https://[a-z0-9.-]*\.trycloudflare\.com' cloudflared.log | head -1)
+        
+        if [ -z "$TUNNEL_URL" ]; then
+          echo "⚠️ Could not extract URL automatically. Checking log file..."
+          cat cloudflared.log
+          echo ""
+          echo "Please look for a line containing 'trycloudflare.com' manually."
+        else
+          echo "✅ Tunnel URL: $TUNNEL_URL"
+          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+        fi
+        
+        # نمایش کانفیگ نهایی
+        echo ""
+        echo "═════════════════════════════════════════════════"
+        echo "🔑 YOUR VLESS CONFIG:"
+        echo "vless://${UUID}@${TUNNEL_URL#https://}:443?encryption=none&security=tls&type=ws&path=%2F#GitHub-Actions"
+        echo ""
+        echo "If TLS doesn't work, try port 80 without TLS:"
+        echo "vless://${UUID}@${TUNNEL_URL#https://}:80?encryption=none&security=none&type=ws&path=%2F#GitHub-Actions"
+        echo "═════════════════════════════════════════════════"
+        
+        # نگه داشتن workflow فعال
         sleep 360h
