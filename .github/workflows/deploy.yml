@@ -1,4 +1,4 @@
-name: Deploy Xray VLESS+REALITY Server
+name: Deploy Xray VLESS+REALITY (No Docker)
 
 on:
   workflow_dispatch:
@@ -12,19 +12,84 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Docker
+    - name: Install Xray
       run: |
-        curl -fsSL https://get.docker.com -o get-docker.sh
-        sudo sh get-docker.sh
+        # دانلود و نصب Xray core
+        mkdir -p xray
+        curl -L -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+        unzip -o xray.zip -d xray
+        chmod +x xray/xray
+        sudo mv xray/xray /usr/local/bin/
 
-    - name: Run Xray with REALITY
+    - name: Generate REALITY keys and config
       run: |
-        docker run -d --name xray-reality -p 443:443 --restart=unless-stopped teddysun/xray \
-          -dest www.bing.com:443 \
-          -server-names www.bing.com \
-          -fingerprint chrome
-        sleep 10
-        docker logs xray-reality
+        # تولید کلیدهای REALITY
+        mkdir -p /tmp/xray
+        cd /tmp/xray
+        /usr/local/bin/xray x25519 > keys.txt
+        PRIVATE_KEY=$(grep "Private key:" keys.txt | awk '{print $3}')
+        PUBLIC_KEY=$(grep "Public key:" keys.txt | awk '{print $3}')
+        UUID=$(/usr/local/bin/xray uuid)
+        SHORT_ID=$(openssl rand -hex 8)
+        
+        echo "PRIVATE_KEY=$PRIVATE_KEY" >> $GITHUB_ENV
+        echo "PUBLIC_KEY=$PUBLIC_KEY" >> $GITHUB_ENV
+        echo "UUID=$UUID" >> $GITHUB_ENV
+        echo "SHORT_ID=$SHORT_ID" >> $GITHUB_ENV
+        
+        # ساختن فایل کانفیگ Xray با پروتکل REALITY
+        cat > config.json << EOF
+        {
+          "log": {
+            "loglevel": "warning"
+          },
+          "inbounds": [
+            {
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [
+                  {
+                    "id": "$UUID",
+                    "flow": "xtls-rprx-vision"
+                  }
+                ],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                  "dest": "www.google.com:443",
+                  "serverNames": ["www.google.com"],
+                  "privateKey": "$PRIVATE_KEY",
+                  "shortIds": ["$SHORT_ID"]
+                }
+              }
+            }
+          ],
+          "outbounds": [
+            {
+              "protocol": "freedom",
+              "tag": "direct"
+            }
+          ]
+        }
+        EOF
 
-    - name: Keep alive
-      run: sleep 360h
+    - name: Run Xray
+      run: |
+        /usr/local/bin/xray run -config /tmp/xray/config.json &
+        sleep 5
+        echo "✅ Xray is running with REALITY protocol"
+        echo "══════════════════════════════════════════════════════"
+        echo "🔑 YOUR VLESS+REALITY CONFIG (copy this into V2RayNG):"
+        echo ""
+        echo "vless://${UUID}@${GITHUB_RUN_ID}.github.com:443?encryption=none&security=reality&sni=www.google.com&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&flow=xtls-rprx-vision#GitHub-REALITY"
+        echo ""
+        echo "📌 If the above doesn't work, try this IP format (replace YOUR_IP):"
+        echo "vless://${UUID}@$(curl -s ifconfig.me):443?encryption=none&security=reality&sni=www.google.com&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&flow=xtls-rprx-vision#GitHub-REALITY"
+        echo "══════════════════════════════════════════════════════"
+        
+        # نگه داشتن workflow فعال
+        sleep 360h
