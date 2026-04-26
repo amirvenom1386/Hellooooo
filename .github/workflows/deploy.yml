@@ -55,4 +55,4 @@ jobs:
         echo "=========================================="
 
     - name: Keep alive
-      run: sleep 360h
+      run: sleep 10s
