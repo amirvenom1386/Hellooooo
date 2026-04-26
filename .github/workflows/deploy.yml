@@ -1,4 +1,4 @@
-name: Direct Shadowsocks Server
+name: VLESS Direct Server
 
 on:
   workflow_dispatch:
@@ -9,59 +9,50 @@ jobs:
     timeout-minutes: 360
 
     steps:
-    - name: Install Shadowsocks-libev
+    - name: Install Xray
       run: |
-        sudo apt update
-        sudo apt install -y shadowsocks-libev
+        mkdir -p xray
+        curl -L -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+        unzip -o xray.zip -d xray
+        chmod +x xray/xray
+        sudo mv xray/xray /usr/local/bin/
 
-    - name: Generate random config
+    - name: Generate UUID and config
       run: |
-        PASSWORD=$(openssl rand -base64 16)
-        PORT=8443
-        METHOD="chacha20-ietf-poly1305"
-        echo "PASSWORD=$PASSWORD" >> $GITHUB_ENV
-        echo "PORT=$PORT" >> $GITHUB_ENV
-        
-        # ساخت فایل کانفیگ
-        cat > ss-config.json << EOF
+        UUID=$(/usr/local/bin/xray uuid)
+        echo "UUID=$UUID" >> $GITHUB_ENV
+        cat > config.json << EOF
         {
-          "server": "0.0.0.0",
-          "server_port": $PORT,
-          "password": "$PASSWORD",
-          "method": "$METHOD",
-          "fast_open": true
+          "inbounds": [
+            {
+              "port": 443,
+              "protocol": "vless",
+              "settings": {
+                "clients": [{"id": "$UUID"}],
+                "decryption": "none"
+              }
+            }
+          ],
+          "outbounds": [{"protocol": "freedom"}]
         }
         EOF
 
-    - name: Start Shadowsocks
+    - name: Run Xray
       run: |
-        sudo ss-server -c ss-config.json -u &
+        /usr/local/bin/xray run -config config.json &
         sleep 5
 
-    - name: Get public IP
+    - name: Get IP
       run: |
-        MY_IP=$(curl -s ifconfig.me)
-        echo "MY_IP=$MY_IP" >> $GITHUB_ENV
+        IP=$(curl -s ifconfig.me)
+        echo "IP=$IP" >> $GITHUB_ENV
 
-    - name: Show connection info
+    - name: Show config
       run: |
-        echo "=============================================="
-        echo "✅ Shadowsocks server is running"
-        echo ""
-        echo "🔑 Connection details:"
-        echo "   Server IP: ${{ env.MY_IP }}"
-        echo "   Port: ${{ env.PORT }}"
-        echo "   Password: ${{ env.PASSWORD }}"
-        echo "   Method: chacha20-ietf-poly1305"
-        echo ""
-        echo "📱 For V2RayNG (Android):"
-        echo "   Create a new Shadowsocks profile with above info."
-        echo ""
-        echo "🖥️ For Windows/Linux: use 'ss-local' or 'Shadowsocks' client."
-        echo "=============================================="
-        echo ""
-        echo "⚠️ This server will stay alive for up to 6 hours."
-        echo "   After that, re-run this workflow to get a new IP."
+        echo "=========================================="
+        echo "VLESS config for V2RayNG:"
+        echo "vless://${{ env.UUID }}@${{ env.IP }}:443?encryption=none&security=none&type=tcp#GitHub"
+        echo "=========================================="
 
     - name: Keep alive
       run: sleep 360h
